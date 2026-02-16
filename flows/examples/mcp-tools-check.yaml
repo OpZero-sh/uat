@@ -1,0 +1,24 @@
+name: mcp-tools-check
+description: Verify MCP server tools respond correctly
+config:
+  mcp_url: "${MCP_URL}"
+  mcp_token: "${MCP_TOKEN}"
+steps:
+  - action: mcp_connect
+    url: "${MCP_URL}"
+    auth: "Bearer ${MCP_TOKEN}"
+  - action: mcp_list_tools
+    save_as: tools
+  - action: assert_body
+    path: "tools.length"
+    operator: gte
+    value: 1
+  - action: mcp_call
+    tool: "repos_list"
+    params: {}
+    save_as: repos
+  - action: assert_body
+    path: "repos"
+    operator: contains
+    value: "opzero"
+  - action: mcp_disconnect

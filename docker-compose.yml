@@ -1,0 +1,38 @@
+services:
+  uat:
+    build: .
+    init: true
+    ports:
+      - "3200:3200"
+    environment:
+      - PORT=3200
+      - NODE_ENV=production
+    tmpfs:
+      - /tmp/uat-artifacts:size=512M
+      - /tmp/uat-traces:size=256M
+      - /tmp/uat-state:size=64M
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+          cpus: "0.5"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      - devnet
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3200/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  devnet:
+    name: devnet
+    external: true

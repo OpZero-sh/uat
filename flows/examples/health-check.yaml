@@ -1,0 +1,17 @@
+name: health-check
+description: Verify a page loads and has expected content
+config:
+  base_url: "${BASE_URL}"
+  timeout: 30000
+steps:
+  - action: goto
+    url: "${BASE_URL}"
+  - action: wait
+    condition: networkidle
+  - action: screenshot
+    name: homepage-loaded
+  - action: assert_title
+    match: contains
+    value: "${EXPECTED_TITLE}"
+  - action: assert_visible
+    selector: "nav"

@@ -1,0 +1,25 @@
+name: api-deploy-verify
+description: Deploy via API, verify in browser
+config:
+  base_url: "${BASE_URL}"
+steps:
+  - action: api_request
+    method: GET
+    url: "${BASE_URL}/health"
+    assert_status: 200
+    save_as: health
+  - action: api_request
+    method: POST
+    url: "${BASE_URL}/api/deploy"
+    headers:
+      Authorization: "Bearer ${API_TOKEN}"
+    body:
+      files:
+        index.html: "<h1>smoke test</h1>"
+    assert_status: 200
+    save_as: deploy
+  - action: goto
+    url: "${deploy.body.url}"
+  - action: assert_text
+    selector: "h1"
+    value: "smoke test"

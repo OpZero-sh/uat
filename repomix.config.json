@@ -1,0 +1,34 @@
+{
+  "output": {
+    "filePath": "repomix-output.txt",
+    "style": "markdown",
+    "showLineNumbers": true,
+    "topFilesLength": 10,
+    "removeComments": false,
+    "removeEmptyLines": false
+  },
+  "include": [
+    "mcp-server/src/**/*.ts",
+    "flows/**/*.{ts,yaml,yml,json}",
+    "package.json",
+    "tsconfig.json",
+    "Dockerfile",
+    "docker-compose.yml",
+    "railway.toml",
+    "CLAUDE.md",
+    "README.md"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "node_modules",
+      "dist",
+      "bun.lock",
+      "pnpm-lock.yaml",
+      "repomix-output.txt",
+      ".DS_Store",
+      "*.log"
+    ]
+  }
+}

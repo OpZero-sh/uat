@@ -1,0 +1,24 @@
+{
+  "urlA": "https://www.cox.com/residential/home.html",
+  "urlB": "https://www.cox.com/residential/home.html",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "fullPage": true,
+  "waitMs": 8000,
+  "waitFor": "img[alt=\"Family sitting on couch looking at mobile devices\"]",
+  "waitImages": true,
+  "threshold": 0.1,
+  "matchedDimensions": true,
+  "totalPixels": 7385600,
+  "diffPixels": 0,
+  "diffPercent": 0,
+  "passed": true,
+  "files": {
+    "screenshotA": "visual-diff-output/screenshot-a.png",
+    "screenshotB": "visual-diff-output/screenshot-b.png",
+    "diff": "visual-diff-output/diff.png"
+  },
+  "timestamp": "2026-03-03T13:47:58.768Z"
+}

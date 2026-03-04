@@ -14,6 +14,7 @@ import { register as registerApi } from "./tools/api.js";
 import { register as registerMcpClient } from "./tools/mcp-client.js";
 import { register as registerFlow } from "./tools/flow.js";
 import { register as registerRecord } from "./tools/record.js";
+import { register as registerScenario } from "./tools/scenario.js";
 
 const PORT = parseInt(process.env.PORT ?? "3200", 10);
 const DRAIN_TIMEOUT_MS = 10_000;
@@ -38,6 +39,7 @@ registerApi(server);
 registerMcpClient(server);
 registerFlow(server);
 registerRecord(server);
+registerScenario(server);
 
 const httpServer = createServer(async (req, res) => {
   try {

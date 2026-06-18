@@ -1,0 +1,43 @@
+name: CI
+
+# Standard single-package Bun repo (@opzero/uat). Thin caller of the org
+# reusable ci-bun.yml. Runs typecheck (tsc --noEmit) + the Bun test suite.
+#
+# Why bun and not pnpm: two lockfiles are committed (bun.lock + pnpm-lock.yaml)
+# but this project is a Bun repo — tsconfig pulls in bun-types, the tests import
+# from "bun:test", and the Dockerfile installs/runs with bun. CI pins to bun and
+# uses --frozen-lockfile against bun.lock (handled inside the reusable workflow).
+#
+# What is intentionally NOT run here:
+#   - run-build: there is no build script (typecheck is tsc --noEmit, no emit).
+#   - run-lint:  there is no lint script or lint config in the repo.
+#   - the start/dev scripts: package.json points them at src/index.ts, but the
+#     real entrypoint is mcp-server/src/index.ts (src/ only holds visual-diff.ts).
+#     Those scripts are broken and are deliberately never invoked by CI.
+# The Bun test suite is browser-free by design (Playwright-dependent flow tests
+# are excluded), so it runs on a plain runner with no Playwright install.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: opzero-sh/.github/.github/workflows/ci-bun.yml@main
+    with:
+      working-directory: .
+      bun-version: 1.3.9
+      run-typecheck: true
+      run-lint: false
+      run-test: true
+      run-build: false
+

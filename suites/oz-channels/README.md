@@ -16,10 +16,16 @@ https://oz-channels-e2e.mcp.opzero.sh/
   15 minute token the harness gets from OpZero (masked in logs, no refresh).
   The other person is synthetic, driven on the server through `e2e_drive`.
 - Media: Chromium fake camera and microphone; the microphone plays an
-  espeak-ng phrase ("harness check ..."). Two browser call checks need a second
-  real browser identity and stay skipped until there is one.
-- Calls run only when `OZ_CALLS=1` (workflow input, or the repository variable
-  `OZ_CALLS_ENABLED`), because real calls count against the call caps.
+  espeak-ng phrase ("harness check ...").
+- Calls: the call page lives on Oz Calls (`oz-calls.mcp.opzero.sh`) and takes a
+  signed ticket, so two synthetic people can join from two browsers. Every run
+  checks that members get tickets and that the page loads and reports its state
+  (`refused` while calls are switched off). The two person live call, with
+  inbound audio measured from WebRTC stats, runs only when `OZ_CALLS=1`
+  (workflow input, or the repository variable `OZ_CALLS_ENABLED`), because it
+  spends call minutes.
+- If the reviewer sign in fails, the web app checks are reported failed and
+  the call page checks still run.
 
 Contract the app keeps for this suite:
 
@@ -30,3 +36,6 @@ Contract the app keeps for this suite:
   with `OZ_SELECTORS` (JSON) if they change.
 - `window.ozCall(name, args)` calls a tool as the signed in person;
   `window.ozApp.state()` and `window.ozApp.refresh()`.
+- Call page: `data-testid` `call-root`, `call-status` (`data-state` joining,
+  live, ended, refused), `call-error`, `call-note`, `call-meeting`,
+  `call-leave`; `?autojoin=1` skips the device setup screen.

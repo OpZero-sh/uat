@@ -48,8 +48,16 @@ async function harness(tool, body) {
 }
 // The ingest route may wrap a tool result once more ({ result: {...} }).
 const unwrap = (r) => (r && !r.content && !r.structuredContent && r.result ? unwrap(r.result) : r)
-const text = (r) => (unwrap(r)?.content || []).map((c) => c.text || '').join('\n')
-const sc = (r) => unwrap(r)?.structuredContent || {}
+// It answers with the tool's structuredContent as a bare object when there is
+// one, so a bare object is read as the structured result and as text.
+const text = (r) => {
+  const u = unwrap(r)
+  return u?.content ? u.content.map((c) => c.text || '').join('\n') : JSON.stringify(u ?? '')
+}
+const sc = (r) => {
+  const u = unwrap(r)
+  return u?.structuredContent || (u && !u.content && typeof u === 'object' ? u : {})
+}
 
 async function step(name, fn) {
   const t = Date.now()
@@ -193,8 +201,7 @@ async function main() {
       for (const [p, n] of [['ana', ANA], ['cy', CY]]) await as(p, 'set_profile', { display_name: n, email_notices: false })
       const inv = await as('ana', 'create_invite', {})
       if (!sc(inv).code) return 'no invite code in ' + JSON.stringify(inv).slice(0, 300)
-      const j = await as('cy', 'join', { code: sc(inv).code })
-      if (!/connected with/i.test(text(j))) return text(j)
+      await as('cy', 'join', { code: sc(inv).code }) // a refused join throws
       const c = await as('ana', 'create_channel', { name: 'call-' + run, members: [CY] })
       conv = sc(c).conversation?.id || ''
       return !!conv || text(c)

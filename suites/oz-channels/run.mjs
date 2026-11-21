@@ -48,8 +48,16 @@ async function harness(tool, body) {
 }
 // The ingest route may wrap a tool result once more ({ result: {...} }).
 const unwrap = (r) => (r && !r.content && !r.structuredContent && r.result ? unwrap(r.result) : r)
-const text = (r) => (unwrap(r)?.content || []).map((c) => c.text || '').join('\n')
-const sc = (r) => unwrap(r)?.structuredContent || {}
+// It answers with the tool's structuredContent as a bare object when there is
+// one, so a bare object is read as the structured result and as text.
+const text = (r) => {
+  const u = unwrap(r)
+  return u?.content ? u.content.map((c) => c.text || '').join('\n') : JSON.stringify(u ?? '')
+}
+const sc = (r) => {
+  const u = unwrap(r)
+  return u?.structuredContent || (u && !u.content && typeof u === 'object' ? u : {})
+}
 
 async function step(name, fn) {
   const t = Date.now()

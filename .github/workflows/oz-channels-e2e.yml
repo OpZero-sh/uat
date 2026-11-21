@@ -42,18 +42,17 @@ jobs:
           npm init -y >/dev/null
           npm install --no-audit --no-fund playwright@1.50.1
           npx playwright install --with-deps chromium
-          sudo apt-get install -y espeak-ng sox >/dev/null
+          sudo apt-get install -y espeak-ng >/dev/null
       - name: Make the fake microphone audio
         working-directory: suites/oz-channels
         run: |
           espeak-ng -s 140 -w speech.wav "harness check. this is the oz channels end to end test. harness check."
-          sox -n -r 48000 -c 1 tone.wav synth 30 sine 440 vol 0.5
+          
       - name: Run
         working-directory: suites/oz-channels
         env:
           OZ_CALLS: ${{ (github.event.inputs.calls == 'true' || vars.OZ_CALLS_ENABLED == '1') && '1' || '0' }}
           OZ_NOTETAKER: ${{ (github.event.inputs.notetaker == 'true' || vars.OZ_NOTETAKER_ENABLED == '1') && '1' || '0' }}
           OZ_SPEECH_WAV: ${{ github.workspace }}/suites/oz-channels/speech.wav
-          OZ_TONE_WAV: ${{ github.workspace }}/suites/oz-channels/tone.wav
           OZ_SELECTORS: ${{ vars.OZ_SELECTORS }}
         run: node run.mjs

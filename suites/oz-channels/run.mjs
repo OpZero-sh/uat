@@ -13,18 +13,16 @@ const CALLS = process.env.OZ_CALLS === '1'
 const NOTETAKER = process.env.OZ_NOTETAKER === '1'
 const RUN_URL = process.env.GITHUB_RUN_ID ? `https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined
 const SPEECH = process.env.OZ_SPEECH_WAV || ''
-const TONE = process.env.OZ_TONE_WAV || ''
 
-// Selectors the web app promises (its E2E SELECTORS block). Overridable per run.
+// Selectors from the web app's web/E2E-SELECTORS.md. Overridable per run.
 const SEL = {
-  signedIn: '[data-testid="me"]',
-  convItem: '[data-testid="conv-item"]',
+  me: '[data-testid="me"]',
+  conversation: '[data-testid="conversation"]',
   laneAgent: '[data-testid="lane-agent"]',
   lanePerson: '[data-testid="lane-person"]',
-  composer: '[data-testid="composer"]',
+  composer: '[data-testid="composer-input"]',
   send: '[data-testid="send"]',
   message: '[data-testid="message"]',
-  callButton: '[data-testid="call-join"]',
   ...(process.env.OZ_SELECTORS ? JSON.parse(process.env.OZ_SELECTORS) : {}),
 }
 
@@ -67,123 +65,93 @@ async function step(name, fn) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 async function main() {
-  const sess = await harness('browser_session', { personas: ['ana', 'ben'] })
-  const { run, codes, site } = sc(sess)
+  // The web app's person is the reviewer account (a real sign in, 15 minute
+  // token, never printed); the other person is synthetic, driven on the server.
+  const sess = await harness('browser_session', {})
+  const { run, site, reviewer } = sc(sess)
+  console.log('::add-mask::' + reviewer.access_token)
   console.log('run ' + run)
   const as = (persona, tool, args = {}) => harness('browser_drive', { run, persona, tool, args })
-  const NAME = (p) => p[0].toUpperCase() + p.slice(1) + ' ' + run
+  const BEN = 'Ben ' + run
   let dm = ''
-
-  await step('synthetic people connect through an invite', async () => {
-    for (const p of ['ana', 'ben']) await as(p, 'set_profile', { display_name: NAME(p), email_notices: false })
-    const inv = await as('ana', 'create_invite', {})
-    const j = await as('ben', 'join', { code: sc(inv).code })
-    if (!text(j).includes('connected with')) return text(j)
-    const s = await as('ana', 'send_message', { to: NAME('ben'), message: 'setup ' + run })
-    dm = sc(s).conversation?.id || ''
-    return !!dm || text(s)
-  })
+  let reviewerId
 
   const args = ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required']
-  const launch = (wav) => chromium.launch({ args: wav ? [...args, '--use-file-for-fake-audio-capture=' + wav] : args })
-  const bA = await launch(SPEECH)
-  const bB = await launch(TONE)
-  const pages = {}
+  const browser = await chromium.launch({ args: SPEECH ? [...args, '--use-file-for-fake-audio-capture=' + SPEECH] : args })
   try {
-    for (const [p, b] of [['ana', bA], ['ben', bB]]) {
-      const ctx = await b.newContext({ permissions: ['microphone', 'camera'] })
-      pages[p] = await ctx.newPage()
-    }
-    let webReady = false
-    await step('web app signs each synthetic person in', async () => {
-      for (const p of ['ana', 'ben']) {
-        await pages[p].goto(site + '/?page=app&e2e=' + codes[p], { waitUntil: 'domcontentloaded' })
-      }
-      const ok = await Promise.all(['ana', 'ben'].map((p) => pages[p].waitForSelector(SEL.signedIn, { timeout: 15000 }).then(() => true, () => false)))
-      if (!ok[0] && !ok[1]) {
-        const has = await pages.ana.locator('[data-testid]').count()
-        if (!has) return 'skip' // the web app with e2e sign in is not deployed yet
-        return 'no signed in marker (' + SEL.signedIn + ')'
-      }
-      webReady = ok[0] && ok[1]
-      return webReady || 'only one person signed in'
+    const ctx = await browser.newContext({ permissions: ['microphone', 'camera'] })
+    const auth = { access_token: reviewer.access_token, refresh_token: '', expires_at: reviewer.expires_at, token_endpoint: '', client_id: '', resource: reviewer.resource }
+    await ctx.addInitScript((v) => sessionStorage.setItem('ozch.hub.auth', v), JSON.stringify(auth))
+    const page = await ctx.newPage()
+    page.on('dialog', (d) => d.accept())
+    const call = (name, a = {}) => page.evaluate(([n, x]) => window.ozCall(n, x), [name, a])
+
+    let ready = false
+    await step('web app opens signed in as the reviewer', async () => {
+      await page.goto(site + '/?page=app', { waitUntil: 'domcontentloaded' })
+      ready = await page.waitForSelector(SEL.me, { timeout: 20000 }).then(() => true, () => false)
+      if (!ready) return (await page.locator('[data-testid="signin-gate"]').count()) ? 'sign in gate shown: the page did not take the token' : 'no signed in marker'
+      reviewerId = await page.evaluate(() => window.ozApp?.state?.()?.me?.id).catch(() => undefined)
+      return true
     })
-    await step('a message typed in the web app arrives in the other web app', async () => {
-      if (!webReady) return 'skip'
+    await step('reviewer joins a synthetic person through an invite, from the page', async () => {
+      if (!ready) return 'skip'
+      await as('ben', 'set_profile', { display_name: BEN, email_notices: false })
+      const inv = await as('ben', 'create_invite', {})
+      const j = await call('join', { code: sc(inv).code })
+      const t = JSON.stringify(j)
+      if (!/connected with/i.test(t)) return t
+      await page.evaluate(() => window.ozApp?.refresh?.())
+      await page.locator(SEL.conversation).filter({ hasText: BEN }).first().waitFor({ timeout: 15000 })
+      return true
+    })
+    await step('a message typed in the page reaches the other person', async () => {
+      if (!ready) return 'skip'
       const body = 'typed in the browser ' + run
-      await pages.ana.locator(SEL.convItem).filter({ hasText: NAME('ben') }).first().click()
-      await pages.ana.locator(SEL.composer).fill(body)
-      await pages.ana.locator(SEL.send).click()
-      await pages.ben.locator(SEL.convItem).filter({ hasText: NAME('ana') }).first().click()
-      await pages.ben.locator(SEL.message).filter({ hasText: body }).first().waitFor({ timeout: 20000 })
+      await page.locator(SEL.conversation).filter({ hasText: BEN }).first().click()
+      await page.locator(SEL.composer).fill(body)
+      await page.locator(SEL.send).click()
+      await page.locator(SEL.message).filter({ hasText: body }).first().waitFor({ timeout: 15000 })
+      const convs = sc(await as('ben', 'list_conversations', {})).conversations || []
+      dm = convs.find((c) => c.kind === 'dm')?.id || ''
+      if (!dm) return 'ben has no DM'
       const r = await as('ben', 'read_messages', { conversation: dm, lane: 'person' })
-      return text(r).includes(body) || 'not in the store: ' + text(r)
+      return text(r).includes(body) || 'not delivered: ' + text(r).slice(0, 200)
     })
-    await step('the agent lane is separate in the web app', async () => {
-      if (!webReady) return 'skip'
+    await step('a reply from the other person shows up in the page', async () => {
+      if (!ready) return 'skip'
+      const body = 'reply from ben ' + run
+      if (!dm) return 'ben has no DM'
+      const p = await as('ben', 'post_message', { conversation: dm, message: body })
+      if (!/^Sent/.test(text(p))) return text(p)
+      await page.locator(SEL.message).filter({ hasText: body }).first().waitFor({ timeout: 25000 })
+      return true
+    })
+    await step('the agent lane in the page is separate from the person lane', async () => {
+      if (!ready) return 'skip'
       const body = 'agent lane from the browser ' + run
-      await pages.ben.locator(SEL.laneAgent).click()
-      await pages.ben.locator(SEL.composer).fill(body)
-      await pages.ben.locator(SEL.send).click()
-      const r = await as('ana', 'read_messages', { conversation: dm, lane: 'agent' })
-      if (!text(r).includes(body)) return 'not in the agent lane: ' + text(r)
-      const p = await as('ana', 'read_messages', { conversation: dm, lane: 'person' })
-      return !text(p).includes(body) || 'leaked into the person lane'
+      await page.locator(SEL.laneAgent).click()
+      await page.locator(SEL.composer).fill(body)
+      await page.locator(SEL.send).click()
+      await page.locator(SEL.message).filter({ hasText: body }).first().waitFor({ timeout: 15000 })
+      const ag = await as('ben', 'read_messages', { conversation: dm, lane: 'agent' })
+      const pe = await as('ben', 'read_messages', { conversation: dm, lane: 'person' })
+      return (text(ag).includes(body) && !text(pe).includes(body)) || 'agent lane: ' + text(ag).slice(0, 150)
     })
 
-    // Calls: window.ozCall contract shared by the RealtimeKit call page and p2p audio.
-    const hasCall = webReady && (await pages.ana.evaluate(() => typeof window.ozCall === 'object').catch(() => false))
-    const stats = (p) => pages[p].evaluate(() => window.ozCall.stats())
-    await step('both people join a call', async () => {
-      if (!CALLS || !hasCall) return 'skip'
-      await Promise.all(['ana', 'ben'].map((p) => pages[p].evaluate(() => window.ozCall.join())))
-      for (let i = 0; i < 30; i++) {
-        const st = await Promise.all(['ana', 'ben'].map((p) => pages[p].evaluate(() => [window.ozCall.state(), window.ozCall.participants()])))
-        if (st.every(([s, n]) => s === 'joined' && n >= 2)) return true
-        await sleep(1000)
-      }
-      return 'not joined: ' + JSON.stringify(await Promise.all(['ana', 'ben'].map((p) => pages[p].evaluate(() => [window.ozCall.state(), window.ozCall.participants()]))))
-    })
-    await step('audio flows both ways', async () => {
-      if (!CALLS || !hasCall) return 'skip'
-      const a1 = await stats('ana'), b1 = await stats('ben')
-      await sleep(8000)
-      const a2 = await stats('ana'), b2 = await stats('ben')
-      const grew = (x, y) => (y?.audioIn?.bytes || 0) > (x?.audioIn?.bytes || 0) + 2000
-      const loud = (y) => (y?.audioIn?.level || 0) > 0.001
-      return (grew(a1, a2) && grew(b1, b2) && loud(a2) && loud(b2)) || JSON.stringify({ a1, a2, b1, b2 }).slice(0, 380)
-    })
-    await step('video flows both ways', async () => {
-      if (!CALLS || !hasCall) return 'skip'
-      const a = await stats('ana'), b = await stats('ben')
-      if (!a.videoIn && !b.videoIn) return 'skip' // audio only mode
-      return ((a.videoIn?.frames || 0) > 10 && (b.videoIn?.frames || 0) > 10) || JSON.stringify({ a: a.videoIn, b: b.videoIn })
-    })
-    await step('both leave the call', async () => {
-      if (!CALLS || !hasCall) return 'skip'
-      await Promise.all(['ana', 'ben'].map((p) => pages[p].evaluate(() => window.ozCall.leave())))
-      await sleep(1500)
-      const st = await Promise.all(['ana', 'ben'].map((p) => pages[p].evaluate(() => window.ozCall.state())))
-      return st.every((s) => s === 'left' || s === 'idle') || JSON.stringify(st)
-    })
-    await step('the notetaker transcript holds the spoken phrase', async () => {
-      if (!CALLS || !NOTETAKER || !hasCall) return 'skip'
-      for (let i = 0; i < 24; i++) {
-        const r = await as('ben', 'read_messages', { conversation: dm })
-        if (/harness check/i.test(text(r))) return true
-        await sleep(5000)
-      }
-      return 'no transcript with "harness check" after two minutes'
-    })
+    // Calls need two real browser identities; with one (the reviewer) these
+    // steps run only when a second identity or a media test page is wired in.
+    const hasCall = ready && (await page.evaluate(() => typeof window.ozCallUI === 'object').catch(() => false))
+    await step('call with fake audio and video, both ways', async () => (CALLS && hasCall ? 'needs a second browser identity' : 'skip'))
+    await step('notetaker transcript holds the injected phrase', async () => (CALLS && NOTETAKER && hasCall ? 'needs a second browser identity' : 'skip'))
   } finally {
-    await bA.close().catch(() => {})
-    await bB.close().catch(() => {})
+    await browser.close().catch(() => {})
   }
 
   const real = steps.filter((s) => !s.skipped)
   const passed = real.filter((s) => s.ok).length
   const ok = passed === real.length
-  await harness('browser_report', { run, ok, passed, total: real.length, url: RUN_URL, steps })
+  await harness('browser_report', { run, ok, passed, total: real.length, url: RUN_URL, steps, reviewer_id: /^p_[A-Za-z0-9]+$/.test(reviewerId || '') ? reviewerId : undefined })
   console.log((ok ? 'PASS ' : 'FAIL ') + passed + '/' + real.length)
   if (!ok) process.exit(1)
 }

@@ -12,18 +12,21 @@ https://oz-channels-e2e.mcp.opzero.sh/
 - Auth: no stored secret. The job asks GitHub for an OIDC token with audience
   `oz-channels-e2e`; the harness accepts only tokens for this repository's
   `main` branch and this workflow.
-- Media: Chromium fake camera and microphone. One side plays a spoken phrase
-  ("harness check ...") made with espeak-ng, the other a tone, so audio levels
-  and the notetaker transcript can be checked.
+- Identity: the web app is signed in as the server's reviewer account with a
+  15 minute token the harness gets from OpZero (masked in logs, no refresh).
+  The other person is synthetic, driven on the server through `e2e_drive`.
+- Media: Chromium fake camera and microphone; the microphone plays an
+  espeak-ng phrase ("harness check ..."). Two browser call checks need a second
+  real browser identity and stay skipped until there is one.
 - Calls run only when `OZ_CALLS=1` (workflow input, or the repository variable
   `OZ_CALLS_ENABLED`), because real calls count against the call caps.
 
 Contract the app keeps for this suite:
 
-- `/?page=app&e2e=<code>` signs a synthetic person in (codes come from the
-  owner only `e2e_web_code` tool, five minutes, one use).
-- `data-testid`: `me`, `conv-item`, `lane-person`, `lane-agent`, `composer`,
-  `send`, `message`, `call-join`. Override with `OZ_SELECTORS` (JSON) if they
-  change.
-- `window.ozCall = { state(), join(), leave(), participants(), stats() }` where
-  `stats()` gives `{ audioIn: { bytes, level }, audioOut: { bytes }, videoIn: { frames, bytes }, videoOut: { frames } }`.
+- Session: `sessionStorage['ozch.hub.auth']` set before load skips the sign
+  in gate.
+- `data-testid` from the app's `web/E2E-SELECTORS.md`: `me`, `conversation`,
+  `lane-person`, `lane-agent`, `composer-input`, `send`, `message`. Override
+  with `OZ_SELECTORS` (JSON) if they change.
+- `window.ozCall(name, args)` calls a tool as the signed in person;
+  `window.ozApp.state()` and `window.ozApp.refresh()`.

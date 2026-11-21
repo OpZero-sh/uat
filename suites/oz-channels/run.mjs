@@ -42,12 +42,14 @@ async function harness(tool, body) {
   if (!oidc) oidc = await token()
   const r = await fetch(`${HARNESS}/${tool}?key=${GATE}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, oidc }) })
   const j = await r.json().catch(() => ({}))
-  const res = j.result || j
-  if (!r.ok || res.isError) throw new Error(tool + ': http ' + r.status + ' ' + JSON.stringify(res).slice(0, 300))
+  const res = unwrap(j.result || j)
+  if (!r.ok || res?.isError) throw new Error(tool + ': http ' + r.status + ' ' + JSON.stringify(res).slice(0, 300))
   return res
 }
-const text = (r) => (r?.content || []).map((c) => c.text || '').join('\n')
-const sc = (r) => r?.structuredContent || {}
+// The ingest route may wrap a tool result once more ({ result: {...} }).
+const unwrap = (r) => (r && !r.content && !r.structuredContent && r.result ? unwrap(r.result) : r)
+const text = (r) => (unwrap(r)?.content || []).map((c) => c.text || '').join('\n')
+const sc = (r) => unwrap(r)?.structuredContent || {}
 
 async function step(name, fn) {
   const t = Date.now()
@@ -190,6 +192,7 @@ async function main() {
     await step('two synthetic people share a channel for a call', async () => {
       for (const [p, n] of [['ana', ANA], ['cy', CY]]) await as(p, 'set_profile', { display_name: n, email_notices: false })
       const inv = await as('ana', 'create_invite', {})
+      if (!sc(inv).code) return 'no invite code in ' + JSON.stringify(inv).slice(0, 300)
       const j = await as('cy', 'join', { code: sc(inv).code })
       if (!/connected with/i.test(text(j))) return text(j)
       const c = await as('ana', 'create_channel', { name: 'call-' + run, members: [CY] })
